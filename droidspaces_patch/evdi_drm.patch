@@ -1,3 +1,25 @@
+diff --git a/include/drm/drm_ioctl.h b/include/drm/drm_ioctl.h
+index 171760b6c4a1..6ed61c371f6c 100644
+--- a/include/drm/drm_ioctl.h
++++ b/include/drm/drm_ioctl.h
+@@ -109,6 +109,17 @@ enum drm_ioctl_flags {
+ 	 * This is equivalent to callers with the SYSADMIN capability.
+ 	 */
+ 	DRM_ROOT_ONLY		= BIT(2),
++	/**
++	 * @DRM_UNLOCKED:
++	 *
++	 * Whether &drm_ioctl_desc.func should be called with the DRM BKL held
++	 * or not. Enforced as the default for all modern drivers, hence there
++	 * should never be a need to set this flag.
++	 *
++	 * Do not use anywhere else than for the VBLANK_WAIT IOCTL, which is the
++	 * only legacy IOCTL which needs this.
++	 */
++	DRM_UNLOCKED		= BIT(4),
+ 	/**
+ 	 * @DRM_RENDER_ALLOW:
+ 	 *
 diff --git a/drivers/gpu/drm/Kconfig b/drivers/gpu/drm/Kconfig
 index a2b4c97bcb31..e6f8057e4327 100644
 --- a/drivers/gpu/drm/Kconfig
@@ -4292,7 +4314,7 @@ new file mode 100644
 index 000000000000..a392d52d5c3e
 --- /dev/null
 +++ b/drivers/gpu/drm/evdi/evdi_lindroid_drv.c
-@@ -0,0 +1,457 @@
+@@ -0,0 +1,455 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Copyright (C) 2012 Red Hat
@@ -4639,7 +4661,7 @@ index 000000000000..a392d52d5c3e
 +	return ret;
 +}
 +
-+static int evdi_platform_remove(struct platform_device *pdev)
++static void evdi_platform_remove(struct platform_device *pdev)
 +{
 +	struct evdi_device *evdi = platform_get_drvdata(pdev);
 +	struct drm_device *ddev = evdi->ddev;
@@ -4663,8 +4685,6 @@ index 000000000000..a392d52d5c3e
 +#endif
 +
 +	kfree(evdi);
-+
-+	return 0;
 +}
 +
 +static struct platform_driver evdi_platform_driver = {
