@@ -1,0 +1,86 @@
+name: OP15 source-pinned stock GKI 6.12.69 baseline (NOT FLASHABLE)
+
+on:
+  push:
+    branches:
+      - build/op15-stock-61269-r70
+    paths:
+      - .github/workflows/op15-stock-61269-r70.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Google 6.12.69 android16-6 / 4K source-locked
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk and install dependencies
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /usr/local/share/powershell /opt/hostedtoolcache
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends git curl ca-certificates python3 unzip xz-utils zstd libelf-dev libssl-dev
+          df -h .
+          free -h
+      - name: Pin Google GKI source and build image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          EXPECTED_TAG=android16-6.12-2026-03_r70
+          EXPECTED_SHA=5fd39602326ec050bf53ae07528e1fe1ecefb531
+          EXPECTED_VERSION=6.12.69
+          BUILD_ID=16372235
+          echo "Source: $EXPECTED_TAG SHA=$EXPECTED_SHA GKI build=$BUILD_ID"
+          mkdir -p "$HOME/bin" "$GITHUB_WORKSPACE/work" "$GITHUB_WORKSPACE/dist"
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
+          chmod +x "$HOME/bin/repo"
+          export PATH="$HOME/bin:$PATH"
+          cd "$GITHUB_WORKSPACE/work"
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android16-6.12
+          repo sync -c -j2 --fail-fast --no-tags
+          cd common
+          git fetch --no-tags origin "refs/tags/$EXPECTED_TAG:refs/tags/$EXPECTED_TAG"
+          git -c advice.detachedHead=false checkout --detach "refs/tags/$EXPECTED_TAG"
+          ACTUAL_SHA=$(git rev-parse HEAD)
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA" || { echo "Source SHA mismatch: $ACTUAL_SHA"; exit 10; }
+          test "$(awk '/^VERSION =/{print $3}' Makefile)" = 6
+          test "$(awk '/^PATCHLEVEL =/{print $3}' Makefile)" = 12
+          test "$(awk '/^SUBLEVEL =/{print $3}' Makefile)" = 69
+          cd ..
+          test -x tools/bazel || { echo 'Missing tools/bazel'; exit 11; }
+          tools/bazel run //common:kernel_aarch64_dist -- --destdir="$GITHUB_WORKSPACE/dist"
+          cd "$GITHUB_WORKSPACE/dist"
+          test -s Image || { echo 'No Image artifact'; exit 12; }
+          echo '### Check image banner'
+          LC_ALL=C grep -aom1 'Linux version 6\.12\.69[^[:space:]]*' Image | tee IMAGE_VERSION.txt
+          grep -q 'android16-6' IMAGE_VERSION.txt || { echo 'KMI mismatch'; exit 13; }
+          grep -q '4k' IMAGE_VERSION.txt || { echo 'Page size suffix mismatch'; exit 14; }
+          printf '%s\n' \
+            'Scope=Google GKI 6.12.69 baseline; not OnePlus OEM verified/flash-qualified' \
+            "Tag=$EXPECTED_TAG" "Common_SHA=$ACTUAL_SHA" \
+            "Google_CI_Reference_Build_ID=$BUILD_ID" \
+            'Target=OnePlus 15 CPH2745 4 KB android16-6' \
+            'Toolchain=manifest common-android16-6.12 bootstrap (not proven identical to Google CI)' \
+            > BUILD_INFO.txt
+          sha256sum Image > SHA256SUMS
+          test -f .config && cp .config kernel.config || true
+          echo 'Build completed; image is NOT flash-qualified.'
+          ls -lh Image BUILD_INFO.txt SHA256SUMS
+      - name: Upload image and evidence; never flash automatically
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OP15-61269-GKI-Baseline-NOT-FLASH-QUALIFIED
+          path: |
+            dist/Image
+            dist/IMAGE_VERSION.txt
+            dist/BUILD_INFO.txt
+            dist/SHA256SUMS
+            dist/kernel.config
+            dist/Module.symvers
+          if-no-files-found: error
+          retention-days: 14
