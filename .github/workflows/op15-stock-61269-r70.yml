@@ -43,7 +43,7 @@ jobs:
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android16-6.12
           repo sync -c -j2 --fail-fast --no-tags
           cd common
-          git fetch --no-tags origin "refs/tags/$EXPECTED_TAG:refs/tags/$EXPECTED_TAG"
+          git fetch --no-tags https://android.googlesource.com/kernel/common "refs/tags/$EXPECTED_TAG:refs/tags/$EXPECTED_TAG"
           git -c advice.detachedHead=false checkout --detach "refs/tags/$EXPECTED_TAG"
           ACTUAL_SHA=$(git rev-parse HEAD)
           test "$ACTUAL_SHA" = "$EXPECTED_SHA" || { echo "Source SHA mismatch: $ACTUAL_SHA"; exit 10; }
