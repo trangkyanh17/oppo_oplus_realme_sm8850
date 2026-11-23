@@ -18,9 +18,9 @@ jobs:
       - name: Download known-good build 3 artifacts
         uses: actions/download-artifact@v4
         with:
-          run-id: 45102809973
+          run-id: 45109616014
           github-token: ${{ github.token }}
-          name: OP15-61269-GKI-Baseline-NOT-FLASH-QUALIFIED
+          name: OP15-61269-GKI-Repro-AB16372235-NOT-FLASH-QUALIFIED
           path: baseline
       - name: Verify source build and attempt official Google CI comparison
         shell: bash
@@ -74,9 +74,17 @@ jobs:
                   'oneplus_stock_modules_available':False,
                   'oneplus_flash_qualified':False}
           if result['google_image_available']:
+            local_image, google_image=(a/'Image').read_bytes(),(o/'Image').read_bytes()
+            same=local_image==google_image
             result.update(google_image_sha256=sha(o/'Image'),
                           google_image_banner=banner(o/'Image'),
-                          identical_image=(a/'Image').read_bytes()==(o/'Image').read_bytes())
+                          identical_image=same,
+                          image_byte_size_local=len(local_image),
+                          image_byte_size_google=len(google_image))
+            if not same and len(local_image)==len(google_image):
+              changed=sum(aa!=bb for aa,bb in zip(local_image,google_image))
+              first=next((i for i,(aa,bb) in enumerate(zip(local_image,google_image)) if aa!=bb),None)
+              result.update(image_different_bytes=changed,first_different_byte_offset=first)
           if result['google_symvers_available']:
             x,y=syms(a/'Module.symvers'),syms(o/'kernel_aarch64_Module.symvers')
             diff=sorted(k for k in x.keys()|y.keys() if x.get(k)!=y.get(k))
@@ -84,6 +92,14 @@ jobs:
                           differences_first_25=diff[:25])
           if result['google_config_available']:
             result['google_config_sha256']=sha(o/'kernel_aarch64_dot_config')
+            if (a/'kernel.config').exists():
+              def parse_config(p):
+                return {ln.split('=',1)[0]:ln.split('=',1)[1] for ln in p.read_text().splitlines()
+                        if ln.startswith('CONFIG_') and '=' in ln}
+              local,official=parse_config(a/'kernel.config'),parse_config(o/'kernel_aarch64_dot_config')
+              conflicts=[k for k in local.keys() | official.keys() if local.get(k)!=official.get(k)]
+              result.update(local_config_options=len(local),official_config_options=len(official),
+                            config_option_differences=len(conflicts),config_diff_first_25=sorted(conflicts)[:25])
           pathlib.Path('results/compare.json').write_text(json.dumps(result,indent=2)+'\n')
           pathlib.Path('results/compare.txt').write_text('\n'.join(f'{k}: {v}' for k,v in result.items())+'\n')
           print(json.dumps(result,indent=2))
