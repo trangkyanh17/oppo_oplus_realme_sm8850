@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: Download verified build 4 (reproduced exact stock metadata)
+      - name: Download verified build 4 (matching stock metadata)
         uses: actions/download-artifact@v4
         with:
           run-id: 45109616014
@@ -47,7 +47,9 @@ jobs:
                     echo "Unexpected CI .config response"; rm -f official/$file
                   fi ;;
                 System.map)
-                  if [ "$(stat -c%s official/System.map)" -lt 500000 ] || ! grep -Eq '[[:space:]]_text
+                  if [ "$(stat -c%s official/System.map)" -lt 500000 ] || ! grep -q ' _text' official/System.map; then
+                    echo "Unexpected CI System.map response"; rm -f official/System.map
+                  fi ;;
               esac
             else
               echo "Official CI $file could not be downloaded; comparison will be INCOMPLETE"
@@ -113,76 +115,6 @@ jobs:
               --system-map official/System.map \
               --output results/deep_delta.json
           fi
-      - name: Upload verification reports only
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: OP15-GKI-61269-Google-CI-reference-comparison
-          path: results/
-          if-no-files-found: warn
-          retention-days: 14
- official/System.map; then
-                    echo "Unexpected CI System.map response"; rm -f official/System.map
-                  fi ;;
-              esac
-            else
-              echo "Official CI $file could not be downloaded; comparison will be INCOMPLETE"
-              rm -f "official/$file"
-            fi
-          done
-          python3 - <<'PY'
-          import pathlib,hashlib,json,re
-          a=pathlib.Path('baseline'); o=pathlib.Path('official')
-          sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
-          def banner(p):
-            m=re.search(rb'Linux version 6\.12\.69[^\x00]+',p.read_bytes())
-            return m.group().decode(errors='replace') if m else 'NOT_FOUND'
-          def syms(p):
-            d={}
-            for ln in p.read_text().splitlines():
-              fields=ln.split('\t')
-              if len(fields)>=4: d[fields[1]]=tuple(fields[:1]+fields[2:])
-            return d
-          result={'google_build_id':16372235,
-                  'self_built_image_sha256':sha(a/'Image'),
-                  'self_built_image_banner':banner(a/'Image'),
-                  'google_image_available':(o/'Image').exists(),
-                  'google_symvers_available':(o/'kernel_aarch64_Module.symvers').exists(),
-                  'google_config_available':(o/'kernel_aarch64_dot_config').exists(),
-                  'oneplus_stock_image_available':False,
-                  'oneplus_stock_modules_available':False,
-                  'oneplus_flash_qualified':False}
-          if result['google_image_available']:
-            local_image, google_image=(a/'Image').read_bytes(),(o/'Image').read_bytes()
-            same=local_image==google_image
-            result.update(google_image_sha256=sha(o/'Image'),
-                          google_image_banner=banner(o/'Image'),
-                          identical_image=same,
-                          image_byte_size_local=len(local_image),
-                          image_byte_size_google=len(google_image))
-            if not same and len(local_image)==len(google_image):
-              changed=sum(aa!=bb for aa,bb in zip(local_image,google_image))
-              first=next((i for i,(aa,bb) in enumerate(zip(local_image,google_image)) if aa!=bb),None)
-              result.update(image_different_bytes=changed,first_different_byte_offset=first)
-          if result['google_symvers_available']:
-            x,y=syms(a/'Module.symvers'),syms(o/'kernel_aarch64_Module.symvers')
-            diff=sorted(k for k in x.keys()|y.keys() if x.get(k)!=y.get(k))
-            result.update(built_exports=len(x),google_exports=len(y),export_crc_or_metadata_differences=len(diff),
-                          differences_first_25=diff[:25])
-          if result['google_config_available']:
-            result['google_config_sha256']=sha(o/'kernel_aarch64_dot_config')
-            if (a/'kernel.config').exists():
-              def parse_config(p):
-                return {ln.split('=',1)[0]:ln.split('=',1)[1] for ln in p.read_text().splitlines()
-                        if ln.startswith('CONFIG_') and '=' in ln}
-              local,official=parse_config(a/'kernel.config'),parse_config(o/'kernel_aarch64_dot_config')
-              conflicts=[k for k in local.keys() | official.keys() if local.get(k)!=official.get(k)]
-              result.update(local_config_options=len(local),official_config_options=len(official),
-                            config_option_differences=len(conflicts),config_diff_first_25=sorted(conflicts)[:25])
-          pathlib.Path('results/compare.json').write_text(json.dumps(result,indent=2)+'\n')
-          pathlib.Path('results/compare.txt').write_text('\n'.join(f'{k}: {v}' for k,v in result.items())+'\n')
-          print(json.dumps(result,indent=2))
-          PY
       - name: Upload verification reports only
         if: always()
         uses: actions/upload-artifact@v4
