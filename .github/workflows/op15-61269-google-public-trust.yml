@@ -71,7 +71,7 @@ jobs:
           actual=hashlib.sha256(der).hexdigest()
           assert actual == '0c388b8140683034bd75c61dde1e0a7499a27c5cc08d4304ece0dd6ecbaf0f4d', actual
           (work/'official/google.der').write_bytes(der)
-          pem=work/'common/certs/google_gki_public_16372235.pem'
+          pem=pathlib.Path.cwd()/'certs/google_gki_public_16372235.pem'
           subprocess.run(['openssl','x509','-inform','DER','-in',str(work/'official/google.der'),'-out',str(pem)],check=True)
           assert b'PRIVATE KEY' not in pem.read_bytes()
           print('Official public X509 verified:',len(der),'bytes; SHA256',actual)
