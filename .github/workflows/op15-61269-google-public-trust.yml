@@ -110,14 +110,14 @@ jobs:
           sig=s[head:end]
           anchor='    system_dlkm_extra_archive_files = None,'
           assert sig.count(anchor)==1, 'Unexpected common_kernel macro signature'
-          sig=sig.replace(anchor,anchor+'\\n    system_trusted_key = None,')
+          sig=sig.replace(anchor,anchor+'\n    system_trusted_key = None,')
           s=s[:head]+sig+s[end:]
           call=s.index('    kernel_build(',head)
           assert call>head
           cend=s.index('    name = name,',call)
           assert cend>call
-          s=s[:call]+s[call:].replace('    kernel_build(\\n',
-              '    kernel_build(\\n        system_trusted_key = system_trusted_key,\\n',1)
+          s=s[:call]+s[call:].replace('    kernel_build(\n',
+              '    kernel_build(\n        system_trusted_key = system_trusted_key,\n',1)
           p.write_text(s)
           print('Forwarded system_trusted_key through common_kernel to kernel_build')
           PY
