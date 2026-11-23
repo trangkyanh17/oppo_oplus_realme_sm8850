@@ -51,14 +51,30 @@ jobs:
           test "$(awk '/^PATCHLEVEL =/{print $3}' Makefile)" = 12
           test "$(awk '/^SUBLEVEL =/{print $3}' Makefile)" = 69
           cd ..
+          # Pin the actual checked-out manifest, not only the GKI commit.
+          repo manifest -r -o "$GITHUB_WORKSPACE/dist/repo_manifest.xml"
+          echo "Common SHA: $ACTUAL_SHA"
+          echo '### Git common worktree status'
+          git -C common status --short
           test -x tools/bazel || { echo 'Missing tools/bazel'; exit 11; }
-          tools/bazel run //common:kernel_aarch64_dist -- --destdir="$GITHUB_WORKSPACE/dist"
+          # Kleaf SCM stamp: avoid the unversioned -maybe-dirty build.
+          tools/bazel run --config=stamp //common:kernel_aarch64_dist -- --destdir="$GITHUB_WORKSPACE/dist"
           cd "$GITHUB_WORKSPACE/dist"
           test -s Image || { echo 'No Image artifact'; exit 12; }
           echo '### Check image banner'
           LC_ALL=C grep -aom1 'Linux version 6\.12\.69[^[:space:]]*' Image | tee IMAGE_VERSION.txt
           grep -q 'android16-6' IMAGE_VERSION.txt || { echo 'KMI mismatch'; exit 13; }
           grep -q '4k' IMAGE_VERSION.txt || { echo 'Page size suffix mismatch'; exit 14; }
+          if grep -q 'maybe-dirty' IMAGE_VERSION.txt; then
+            echo 'ERROR: SCM stamping failed (maybe-dirty remains)'
+            exit 15
+          fi
+          if ! grep -q 'g5fd39602326e' IMAGE_VERSION.txt; then
+            echo 'ERROR: Image is missing the expected source commit fingerprint'
+            exit 16
+          fi
+          echo '### Dist files'
+          find . -maxdepth 2 -type f -printf '%P (%s bytes)\\n' | sort | tee DIST_CONTENTS.txt
           printf '%s\n' \
             'Scope=Google GKI 6.12.69 baseline; not OnePlus OEM verified/flash-qualified' \
             "Tag=$EXPECTED_TAG" "Common_SHA=$ACTUAL_SHA" \
@@ -67,7 +83,13 @@ jobs:
             'Toolchain=manifest common-android16-6.12 bootstrap (not proven identical to Google CI)' \
             > BUILD_INFO.txt
           sha256sum Image > SHA256SUMS
-          test -f .config && cp .config kernel.config || true
+          # Kleaf dist outputs are not guaranteed to contain .config / Module.symvers.
+          # Preserve them if present, but never mistake missing files for a completed ABI check.
+          if test -f .config; then cp .config kernel.config; fi
+          if test -f kernel_aarch64_Module.symvers; then
+            cp kernel_aarch64_Module.symvers Module.symvers
+          fi
+          echo 'KMI/module ABI compatibility with CPH2745 firmware: NOT VERIFIED' >> BUILD_INFO.txt
           echo 'Build completed; image is NOT flash-qualified.'
           ls -lh Image BUILD_INFO.txt SHA256SUMS
       - name: Upload image and evidence; never flash automatically
@@ -82,5 +104,7 @@ jobs:
             dist/SHA256SUMS
             dist/kernel.config
             dist/Module.symvers
+            dist/repo_manifest.xml
+            dist/DIST_CONTENTS.txt
           if-no-files-found: error
           retention-days: 14
