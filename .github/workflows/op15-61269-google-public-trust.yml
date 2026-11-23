@@ -98,6 +98,29 @@ jobs:
           p.write_text(s)
           print('Added documented kernel_build system_trusted_key label to GKI arm64 target only')
           PY
+          # The public common_kernel() macro does not expose the underlying
+          # kernel_build(system_trusted_key=...) attribute. Forward that
+          # attribute explicitly, without altering the kernel source.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('../build/kernel/kleaf/common_kernels.bzl')
+          s=p.read_text()
+          head=s.index('def common_kernel(')
+          end=s.index('):',head)
+          sig=s[head:end]
+          anchor='    system_dlkm_extra_archive_files = None,'
+          assert sig.count(anchor)==1, 'Unexpected common_kernel macro signature'
+          sig=sig.replace(anchor,anchor+'\\n    system_trusted_key = None,')
+          s=s[:head]+sig+s[end:]
+          call=s.index('    kernel_build(',head)
+          assert call>head
+          cend=s.index('    name = name,',call)
+          assert cend>call
+          s=s[:call]+s[call:].replace('    kernel_build(\\n',
+              '    kernel_build(\\n        system_trusted_key = system_trusted_key,\\n',1)
+          p.write_text(s)
+          print('Forwarded system_trusted_key through common_kernel to kernel_build')
+          PY
           grep -n -C 3 'system_trusted_key = ' BUILD.bazel
           git diff -- BUILD.bazel | head -65
           test -s certs/google_gki_public_16372235.pem
