@@ -159,7 +159,7 @@ jobs:
           config=(dist/'kernel_aarch64_dot_config').read_text()
           syms=(dist/'kernel_aarch64_Module.symvers').read_bytes()
           k_release=b'Linux version 6.12.69-android16-6-g5fd39602326e-ab16372235-4k '
-          actual_releases=re.findall(rb'Linux version 6\\.12\\.69[^\\x00\\r\\n]*',data)
+          actual_releases=re.findall(rb'Linux version 6\.12\.69[^\x00\r\n]*',data)
           print('Actual Image banner(s):', [x[:420].decode('utf-8','replace') for x in actual_releases[:3]], flush=True)
           assert k_release in data, 'Image release mismatch; actual banner(s) printed above'
           assert len(data)>40000000
