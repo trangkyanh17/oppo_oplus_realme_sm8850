@@ -3,7 +3,7 @@ name: "OP15 GKI 6.12.69: compare official Android CI artifacts"
 on:
   push:
     branches: [build/op15-stock-61269-r70]
-    paths: [.github/workflows/op15-61269-google-ci-compare.yml, ci_tools/analyze_gki_image_delta.py]
+    paths: [.github/workflows/op15-61269-google-ci-compare.yml, ci_tools/analyze_gki_image_delta.py, ci_tools/verify_x509_build_id.py]
   workflow_dispatch:
 
 permissions:
@@ -114,6 +114,10 @@ jobs:
               --built baseline/Image --google official/Image \
               --system-map official/System.map \
               --output results/deep_delta.json
+            python3 ci_tools/verify_x509_build_id.py \
+              --built baseline/Image --google official/Image \
+              --system-map official/System.map \
+              --output results/x509_build_id.json
           fi
       - name: Upload verification reports only
         if: always()
