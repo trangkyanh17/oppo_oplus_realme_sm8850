@@ -1,4 +1,4 @@
-name: OP15 source-pinned stock GKI 6.12.69 baseline (NOT FLASHABLE)
+name: OP15 GKI 6.12.69 stock build-metadata reproduction (NOT FLASHABLE)
 
 on:
   push:
@@ -50,6 +50,10 @@ jobs:
           test "$(awk '/^VERSION =/{print $3}' Makefile)" = 6
           test "$(awk '/^PATCHLEVEL =/{print $3}' Makefile)" = 12
           test "$(awk '/^SUBLEVEL =/{print $3}' Makefile)" = 69
+          # Reproduce Google CI's known build-number metadata using Kleaf's
+          # documented workspace_status.json override. This does NOT assert
+          # binary identity or compatibility with stock OnePlus vendor modules.
+          printf '%s\n' '{"SCMVERSION":"-g5fd39602326e-ab16372235"}' > workspace_status.json
           cd ..
           # Pin the actual checked-out manifest, not only the GKI commit.
           repo manifest -r -o "$GITHUB_WORKSPACE/dist/repo_manifest.xml"
@@ -73,6 +77,11 @@ jobs:
             echo 'ERROR: Image is missing the expected source commit fingerprint'
             exit 16
           fi
+          EXPECTED_FULL_RELEASE='6.12.69-android16-6-g5fd39602326e-ab16372235-4k'
+          grep -Fxq "Linux version $EXPECTED_FULL_RELEASE" IMAGE_VERSION.txt || {
+            echo 'ERROR: Kleaf metadata reproduction failed (unexpected full release)'
+            exit 17
+          }
           echo '### Dist files'
           find . -maxdepth 2 -type f -printf '%P (%s bytes)\\n' | sort | tee DIST_CONTENTS.txt
           printf '%s\n' \
@@ -83,11 +92,15 @@ jobs:
             'Toolchain=manifest common-android16-6.12 bootstrap (not proven identical to Google CI)' \
             > BUILD_INFO.txt
           sha256sum Image > SHA256SUMS
+          echo 'This run reproduces official Google CI build-number METADATA, not a proven byte-identical Google CI/OnePlus stock binary.' >> BUILD_INFO.txt
           # Kleaf dist outputs are not guaranteed to contain .config / Module.symvers.
           # Preserve them if present, but never mistake missing files for a completed ABI check.
-          if test -f .config; then cp .config kernel.config; fi
+          if test -f kernel_aarch64_dot_config; then cp kernel_aarch64_dot_config kernel.config; fi
           if test -f kernel_aarch64_Module.symvers; then
             cp kernel_aarch64_Module.symvers Module.symvers
+          else
+            echo 'Missing Module.symvers; cannot publish ABI evidence'
+            exit 18
           fi
           echo 'KMI/module ABI compatibility with CPH2745 firmware: NOT VERIFIED' >> BUILD_INFO.txt
           echo 'Build completed; image is NOT flash-qualified.'
@@ -96,7 +109,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: OP15-61269-GKI-Baseline-NOT-FLASH-QUALIFIED
+          name: OP15-61269-GKI-Repro-AB16372235-NOT-FLASH-QUALIFIED
           path: |
             dist/Image
             dist/IMAGE_VERSION.txt
