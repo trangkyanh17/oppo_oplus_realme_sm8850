@@ -1,0 +1,98 @@
+name: "OP15 GKI 6.12.69: compare official Android CI artifacts"
+
+on:
+  push:
+    branches: [build/op15-stock-61269-r70]
+    paths: [.github/workflows/op15-61269-google-ci-compare.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Download known-good build 3 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 45102809973
+          github-token: \${{ github.token }}
+          name: OP15-61269-GKI-Baseline-NOT-FLASH-QUALIFIED
+          path: baseline
+      - name: Verify source build and attempt official Google CI comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p official results
+          (cd baseline && sha256sum -c SHA256SUMS)
+          BASE="https://ci.android.com/builds/submitted/16372235/kernel_aarch64/latest/raw"
+          for file in Image kernel_aarch64_Module.symvers kernel_aarch64_dot_config; do
+            echo "Fetching Google CI $file"
+            if curl -fLsS --connect-timeout 20 --max-time 420 --retry 2 "$BASE/$file" -o "official/$file"; then
+              case "$file" in
+                Image)
+                  if [ "$(stat -c%s official/Image)" -lt 25000000 ] || [ "$(dd if=official/Image bs=1 skip=56 count=4 status=none)" != "ARMd" ]; then
+                    echo "Unexpected CI Image response"; rm -f official/Image
+                  fi ;;
+                kernel_aarch64_Module.symvers)
+                  if ! head -1 official/$file | grep -Eq '^0x[[:xdigit:]]{8}[[:space:]]'; then
+                    echo "Unexpected CI Module.symvers response"; rm -f official/$file
+                  fi ;;
+                kernel_aarch64_dot_config)
+                  if ! grep -q '^CONFIG_' official/$file; then
+                    echo "Unexpected CI .config response"; rm -f official/$file
+                  fi ;;
+              esac
+            else
+              echo "Official CI $file could not be downloaded; comparison will be INCOMPLETE"
+              rm -f "official/$file"
+            fi
+          done
+          python3 - <<'PY'
+          import pathlib,hashlib,json,re
+          a=pathlib.Path('baseline'); o=pathlib.Path('official')
+          sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          def banner(p):
+            m=re.search(rb'Linux version 6\.12\.69[^\x00]+',p.read_bytes())
+            return m.group().decode(errors='replace') if m else 'NOT_FOUND'
+          def syms(p):
+            d={}
+            for ln in p.read_text().splitlines():
+              fields=ln.split('\t')
+              if len(fields)>=4: d[fields[1]]=tuple(fields[:1]+fields[2:])
+            return d
+          result={'google_build_id':16372235,
+                  'self_built_image_sha256':sha(a/'Image'),
+                  'self_built_image_banner':banner(a/'Image'),
+                  'google_image_available':(o/'Image').exists(),
+                  'google_symvers_available':(o/'kernel_aarch64_Module.symvers').exists(),
+                  'google_config_available':(o/'kernel_aarch64_dot_config').exists(),
+                  'oneplus_stock_image_available':False,
+                  'oneplus_stock_modules_available':False,
+                  'oneplus_flash_qualified':False}
+          if result['google_image_available']:
+            result.update(google_image_sha256=sha(o/'Image'),
+                          google_image_banner=banner(o/'Image'),
+                          identical_image=(a/'Image').read_bytes()==(o/'Image').read_bytes())
+          if result['google_symvers_available']:
+            x,y=syms(a/'Module.symvers'),syms(o/'kernel_aarch64_Module.symvers')
+            diff=sorted(k for k in x.keys()|y.keys() if x.get(k)!=y.get(k))
+            result.update(built_exports=len(x),google_exports=len(y),export_crc_or_metadata_differences=len(diff),
+                          differences_first_25=diff[:25])
+          if result['google_config_available']:
+            result['google_config_sha256']=sha(o/'kernel_aarch64_dot_config')
+          pathlib.Path('results/compare.json').write_text(json.dumps(result,indent=2)+'\n')
+          pathlib.Path('results/compare.txt').write_text('\n'.join(f'{k}: {v}' for k,v in result.items())+'\n')
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Upload verification reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OP15-GKI-61269-Google-CI-reference-comparison
+          path: results/
+          if-no-files-found: warn
+          retention-days: 14
