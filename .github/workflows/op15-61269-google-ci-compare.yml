@@ -19,7 +19,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           run-id: 45102809973
-          github-token: \${{ github.token }}
+          github-token: ${{ github.token }}
           name: OP15-61269-GKI-Baseline-NOT-FLASH-QUALIFIED
           path: baseline
       - name: Verify source build and attempt official Google CI comparison
