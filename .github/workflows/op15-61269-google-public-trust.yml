@@ -124,6 +124,16 @@ jobs:
           grep -n -C 3 'system_trusted_key = ' BUILD.bazel
           git diff -- BUILD.bazel | head -65
           test -s certs/google_gki_public_16372235.pem
+          # SCM stamping treats modifications to tracked files as a dirty
+          # source tree. Record the verified public-key overlay as a local
+          # ephemeral commit, never pushed to the upstream/kernel repository.
+          git add BUILD.bazel certs/google_gki_public_16372235.pem
+          git -c user.name='OP15 GKI CI' -c user.email='op15-gki-ci@users.noreply.github.com' commit -m 'CI-only: add official Google GKI public trust cert'
+          test -z "$(git status --porcelain --untracked-files=no)" || {
+            echo 'Common kernel source still has tracked modifications'; exit 51;
+          }
+          printf 'local_overlay_sha=%s\n' "$(git rev-parse HEAD)" > "$GITHUB_WORKSPACE/dist/LOCAL_OVERLAY_COMMIT.txt"
+          echo 'Common working tree is clean; SCM override remains pinned to GKI stock source and build ID.'
 
       - name: Build GKI with own signing key plus Google official public trust certificate
         shell: bash
@@ -149,7 +159,9 @@ jobs:
           config=(dist/'kernel_aarch64_dot_config').read_text()
           syms=(dist/'kernel_aarch64_Module.symvers').read_bytes()
           k_release=b'Linux version 6.12.69-android16-6-g5fd39602326e-ab16372235-4k '
-          assert k_release in data, 'Image release mismatch'
+          actual_releases=re.findall(rb'Linux version 6\\.12\\.69[^\\x00\\r\\n]*',data)
+          print('Actual Image banner(s):', [x[:420].decode('utf-8','replace') for x in actual_releases[:3]], flush=True)
+          assert k_release in data, 'Image release mismatch; actual banner(s) printed above'
           assert len(data)>40000000
           assert 'CONFIG_SYSTEM_TRUSTED_KEYS=""' not in config, 'Google trusted key NOT enabled in config'
           assert 'CONFIG_SYSTEM_TRUSTED_KEYS=' in config, 'Missing trusted key config'
